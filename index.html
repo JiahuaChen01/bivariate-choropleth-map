@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualization of Obesity and Fast Food Density</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Verdana', sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+
+        }
+
+        .state {
+            stroke: black;
+            stroke-width: 0.5px;
+        }
+
+        .title, .subtitle {
+            text-align: center;
+            margin: 50px 0 5px 0;
+        }
+
+        .title {
+            font-size: 25px;
+        }
+
+        .subtitle {
+            font-weight: 400;
+            margin: 15px 150px 30px 150px;
+            font-size: 16px;
+        }
+
+        #subtitle2 {
+            text-align: center;
+            font-size: 20px;
+            margin-bottom: 0;
+        }
+
+        #subtitle3 {
+            max-width: 1200px;
+            text-align: center;
+            font-weight: 400;
+            font-size: 14px;
+            color: #666;
+            margin: 8px 0 20px 0;
+        }
+
+        #lollipop {
+            padding-bottom: 30px;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="main">
+        <h1 class="title">Fast Food Density vs Obesity Rates Across U.S. States</h1>
+        <h3 class="subtitle">Visualizing the relationship between fast food restaurant density and state-level obesity rates,
+            with darker shades indicating higher values for both variables.</h3>
+    </div>
+
+    <div>
+        <svg id="map" width="1200" height="900"></svg>
+    </div>
+
+    <script>
+        const width = 960;
+        const height = 600;
+
+        /*Define the map projection for U.S. states */
+        const projection = d3.geoAlbersUsa()
+            .scale(1300)
+            .translate([width / 2, height / 2]);
+
+        // Define path genator using the projection
+        const path = d3.geoPath().projection(projection);
+
+        const svg = d3.select("svg#map");
+
+        // Define a 3x3 color scheme for bivariate mapping
+        const colorScheme = [
+            "#c85a5a", "#985356", "#574249",
+            "#e4acac", "#ad9ea5", "#627f8c",
+            "#e8e8e8", "#b0d5df", "#64acbe",
+        ];
+
+        // Define thresholds for binning obesity and fast food data
+        let obesityMark1 = 32;
+        let obesityMark2 = 35.5;
+        let fastFoodMark1 = 73;
+        let fastFoodMark2 = 77;
+
+        const fastFoodBin = (fastFood) => {
+            if (fastFood <= fastFoodMark1) return 0;         // Low fast food density
+            else if (fastFood <= fastFoodMark2) return 1;    // Medium fast food density
+            else return 2;                                   // High fast food density
+        }
+
+        const obesityBin = (obesity) => {
+            if (obesity <= obesityMark1) return 0;          // Low obesity
+            else if (obesity <= obesityMark2) return 1;     // Medium obesity
+            else return 2;                                  // High obesity
+        }
+
+        // Define a bivariate color scale based on the selected color scheme
+        const bivariateColorScale = (obesity, fastFood) => {
+            // Binning for obesity and fast food density into 3x3 matrix
+            // Combine the bins to index into the color matrix
+            let colorIndex = fastFoodBin(fastFood) + (2 - obesityBin(obesity))  * 3;
+            return colorScheme[colorIndex];
+        };
+
+        // Load the GeoJSON
+        d3.json("usmap.json").then(geojson => {
+            // load the obesity-fast food data
+            d3.json("state_obesity_fastfood_data.json").then(data => {
+                // Create a lookup table for obesity percentage and fast food density by state name
+                const stateData = {};
+                data.forEach(d => {
+                    stateData[d.name] = {
+                        obesity: +d.obesity_percentage,  // Convert string data to numeric
+                        fastFood: +d.total_fast_food_restaurants // Convert string data to numeric
+                    };
+                });
+
+            /* Calculate the extent of obesity and fast food data for reference*/
+            const stateDataArray = Object.values(stateData);
+            let obesityPercentageExtent = d3.extent(stateDataArray, d => d.obesity);
+            let fastFoodExtent = d3.extent(stateDataArray, d => d.fastFood);
+
+            // Append paths for each state in the data
+            svg.selectAll("path")
+                .data(geojson.features)
+                .enter()
+                .append("path")
+                .attr("d", path)
+                .attr("class", "state")
+                .style("fill", d => {
+                    const stateName = d.properties.NAME;
+                    const data = stateData[stateName];
+
+                    if (data) {
+                        // Get the bivariate color based on obesity and fast food density
+                        return bivariateColorScale(data.obesity, data.fastFood);
+                    } else {
+                        return "#000";  // Fallback black color for missing data
+                    }
+                });
+
+
+                //Build the legend
+                const startX = 950;
+                const startY = 220;
+                const rectSize = 30;
+
+                let index = 0; // Current colorScheme index
+
+                for (let i = 0; i < 3; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        svg.append("rect")
+                            .attr("x", startX + j * rectSize)
+                            .attr("y", startY + i * rectSize)
+                            .attr("width", rectSize)
+                            .attr("height", rectSize)
+                            .attr("fill", colorScheme[index]);
+
+                        index += 1;
+                    }
+                }
+
+
+                /* ----- Bivariate choropleth legend ----- */
+                svg.append("text")
+                    .attr("x", startX + rectSize * 1.5)
+                    .attr("y", (startY + rectSize * 3.5) + 5)
+                    .attr("text-anchor", "middle")
+                    .text("Fast Food Density")
+                    .style("font-size", 12);
+
+                svg.append("text")
+                    .attr("x", startX - rectSize * 0.4)
+                    .attr("y", startY + rectSize * 1.5)
+                    .attr("text-anchor", "middle")
+                    .attr("transform", `rotate(-90, ${startX - rectSize * 0.4}, ${startY + rectSize * 1.5})`)
+                    .text("Obesity Rate")
+                    .style("font-size", 12);
+
+                svg.append("line")
+                    .attr("x1", startX + rectSize)
+                    .attr("x2", startX + rectSize)
+                    .attr("y1", startY - 4)
+                    .attr("y2", startY + 4)
+                    .style("stroke", "black")
+                    .style("stroke-width", 2);
+
+                svg.append("line")
+                    .attr("x1", startX + rectSize * 2)
+                    .attr("x2", startX + rectSize * 2)
+                    .attr("y1", startY - 4)
+                    .attr("y2", startY + 4)
+                    .style("stroke", "black")
+                    .style("stroke-width", 2);
+
+                svg.append("line")
+                    .attr("x1", startX + rectSize * 3 - 4)
+                    .attr("x2", startX + rectSize * 3 + 4)
+                    .attr("y1", startY + rectSize)
+                    .attr("y2", startY + rectSize)
+                    .style("stroke", "black")
+                    .style("stroke-width", 2);
+
+                svg.append("line")
+                    .attr("x1", startX + rectSize * 3 - 4)
+                    .attr("x2", startX + rectSize * 3 + 4)
+                    .attr("y1", startY + rectSize * 2)
+                    .attr("y2", startY + rectSize * 2)
+                    .style("stroke", "black")
+                    .style("stroke-width", 2);
+
+                svg.append("text")
+                    .attr("x", startX + rectSize)
+                    .attr("y", startY - 10)
+                    .attr("text-anchor", "middle") //Horizontally align
+                    .style("fill", "#666")
+                    .text(`${fastFoodMark1}`)
+                    .style("font-size", 12);
+
+                svg.append("text")
+                    .attr("x", startX + rectSize * 2)
+                    .attr("y", startY - 10)
+                    .attr("text-anchor", "middle")
+                    .style("fill", "#666")
+                    .text(`${fastFoodMark2}`)
+                    .style("font-size", 12);
+
+                svg.append("text")
+                    .attr("x", startX + rectSize * 3 + 10)
+                    .attr("y", startY + rectSize + 1.5)
+                    .attr("alignment-baseline", "middle") //Vertically align
+                    .style("fill", "#666")
+                    .text(`${obesityMark2}%`)
+                    .style("font-size", 12);
+
+                svg.append("text")
+                    .attr("x", startX + rectSize * 3 + 10)
+                    .attr("y", startY + rectSize * 2 + 1.5)
+                    .attr("alignment-baseline", "middle")
+                    .style("fill", "#666")
+                    .text(`${obesityMark1}%`)
+                    .style("font-size", 12);
+
+
+                /* ----- Description Text ----- */
+                const descriptionText = [
+                    `The Y-axis shows obesity rates: low (<${obesityMark1}%)`,
+                    `medium (${obesityMark1}%–${obesityMark2}%), and high (>${obesityMark2}%).`,
+                    ` `,
+                    `The X-axis represents fast food density,`,
+                    `where the number of restaurants per 100k people`,
+                    `is used to categorize states: low (<${fastFoodMark1} restaurants),`,
+                    `medium (${fastFoodMark1}–${fastFoodMark2}), and high (>${fastFoodMark2}).`
+                ];
+
+                descriptionText.forEach((t, i) => {
+                    svg.append("text")
+                        .attr("x", 850)
+                        .attr("y", 400 + (i * 20))
+                        .style("fill", "#666")
+                        .style("font-size", 12)
+                        .text(t);
+                });
+
+
+                /* ----- Individual variable legends ----- */
+                let legendX = 75;
+                let legendY = 700;
+                let legendWidth = 300;
+                let legendHeight = 20;
+
+                drawLegend(legendX, legendY, legendWidth, legendHeight,
+                    ["#e8e8e8", "#b0d5df", "#64acbe"], "fastFood");
+                drawLegend(legendX + legendWidth + 100, legendY, legendWidth, legendHeight,
+                    ["#e8e8e8", "#e4acac", "#c85a5a"], "obesity");
+
+                // "fastFood" or "obesity" for scaleType
+                function drawLegend(x, y, width, height, colors, scaleType) {
+                    let numStatesPerCategory = [0, 0, 0];
+
+                    Object.values(stateData).forEach(d => {
+                        let c;
+                        if (scaleType === "fastFood")
+                            c = fastFoodBin(d.fastFood);
+                        else if (scaleType === "obesity")
+                            c = obesityBin(d.obesity);
+                        else
+                            console.log("ERROR");
+
+                        numStatesPerCategory[c] += 1
+                    });
+
+
+                    let xPositions = [x];
+                    colors.forEach((c, i) => {
+                        let rectWidth = width * (numStatesPerCategory[i] / 50);
+
+                        svg.append("rect")
+                            .attr("x", xPositions[i])
+                            .attr("y", y)
+                            .attr("width", rectWidth)
+                            .attr("height", height)
+                            .attr("fill", c);
+
+                        //Build the xPositions array for future tick-marks and text
+                        xPositions.push(xPositions[i] + rectWidth);
+                    });
+
+                    //Add tick-marks
+                    xPositions.forEach((currX, i) => {
+                        svg.append("line")        // vvv Just preventing these from falling off the graph vvv
+                            .attr("x1", (i === 0 ? currX + 1 : i === 3 ? currX - 1 : currX))
+                            .attr("x2", (i === 0 ? currX + 1 : i === 3 ? currX - 1 : currX))
+                            .attr("y1", y + height - 5)
+                            .attr("y2", y + height + 5)
+                            .style("stroke", "black")
+                            .style("stroke-width", 2);
+                    });
+
+                    //Add text above and below the legend
+                    xPositions.forEach((currX, i) => {
+                        //Text below
+                        let text = svg.append("text")
+                            .attr("x", currX)
+                            .attr("y", y + height + 20)
+                            .attr("text-anchor", "middle")
+                            .style("fill", "black")
+                            .style('font-size', 11);
+
+                        if (i === 0)
+                            text.text(scaleType === "fastFood" ? fastFoodExtent[0] : obesityPercentageExtent[0])
+                        else if (i === 1)
+                            text.text(scaleType === "fastFood" ? fastFoodMark1 : obesityMark1)
+                        else if (i === 2)
+                            text.text(scaleType === "fastFood" ? fastFoodMark2 : obesityMark2)
+                        else if (i === 3)
+                            text.text(scaleType === "fastFood" ? fastFoodExtent[1] : obesityPercentageExtent[1])
+
+                        //Text above
+                        if (i !== 3) {
+                            svg.append("text")
+                                .attr("x", (currX + (xPositions[i + 1] - currX) / 2))
+                                .attr("y", y - 8)
+                                .attr("text-anchor", "middle")
+                                .style("fill", "black")
+                                .text(numStatesPerCategory[i])
+                                .style('font-size', 10);
+                        }
+
+                        //Min
+                        if (i === 0) {
+                            svg.append("text")
+                                .attr("x", x)
+                                .attr("y", y + height + 35)
+                                .attr("text-anchor", "middle")
+                                .style("fill", "#555")
+                                .style("font-size", 10)
+                                .text("minimum");
+                        }
+
+                        //Max
+                        if (i === 3) {
+                            svg.append("text")
+                                .attr("x", x + width)
+                                .attr("y", y + height + 35)
+                                .attr("text-anchor", "middle")
+                                .style("fill", "#555")
+                                .style("font-size", 10)
+                                .text("maximum");
+                        }
+                    });
+
+                    //Include titles
+                    svg.append("text")
+                        .attr("x", (x + width / 2))
+                        .attr("y", y - 30)
+                        .attr("text-anchor", "middle")
+                        .style("fill", "#333")
+                        .style("font-size", 12)
+                        .text("Number of States");
+
+                    svg.append("text")
+                        .attr("x", (x + width / 2))
+                        .attr("y", y + height + 55)
+                        .attr("text-anchor", "middle")
+                        .style("fill", "#444")
+                        .style("font-size", 12)
+                        .style("font-weight", "bold")
+                        .text(scaleType === "fastFood" ? "Fast Food Restaurants (per 100k people)" : "Obesity Rate (%)");
+                }
+            });
+    });
+    </script>
+
+
+    <div>
+        <h3 id="subtitle2">Comparing the number of restaurant chains across states with varying obesity rates</h3>
+        <h6 id="subtitle3">This graph compares the number of fast-food chains per 100,000 people across states with varying
+            obesity rates. It highlights McDonald's, Starbucks, Subway, and Taco Bell, showing restaurant density
+            in five states, from Colorado (lowest obesity rate) to West Virginia (highest).
+        </h6>
+        <svg id="lollipop" width="1200" height="700"></svg>
+    </div>
+
+    <script>
+        // set up canvas
+        const svg2 = d3.select("#lollipop");
+        const width2 = svg2.attr('width');
+        const height2 = svg2.attr('height');
+        const margin = {top: 40, right: 40, bottom: 70, left: 60};
+        const chartWidth = width2 - margin.left - margin.right;
+        const chartHeight = 500;
+
+        let chartArea = svg2.append('g')
+                        .attr('transform', `translate(${margin.left}, ${margin.top})`);
+
+        // data of top 4 restaurants in top 5 states in obesity rate
+        const top_restaurants = [{"name": "Colorado", "obesity_percentage": 24.9, "restaurant": "McDonalds", "count": 3.6}, {"name": "Nevada", "obesity_percentage": 30.8, "restaurant": "McDonalds", "count": 4.6}, {"name": "Virginia", "obesity_percentage": 34.3, "restaurant": "McDonalds", "count": 4.7}, {"name": "South Carolina", "obesity_percentage": 36.0, "restaurant": "McDonalds", "count": 4.4}, {"name": "West Virginia", "obesity_percentage": 41.2, "restaurant": "McDonalds", "count": 5.8}, {"name": "Colorado", "obesity_percentage": 24.9, "restaurant": "Starbucks", "count": 8.8}, {"name": "Nevada", "obesity_percentage": 30.8, "restaurant": "Starbucks", "count": 8.2}, {"name": "Virginia", "obesity_percentage": 34.3, "restaurant": "Starbucks", "count": 5.2}, {"name": "South Carolina", "obesity_percentage": 36.0, "restaurant": "Starbucks", "count": 3.8}, {"name": "West Virginia", "obesity_percentage": 41.2, "restaurant": "Starbucks", "count": 2.2}, {"name": "Colorado", "obesity_percentage": 24.9, "restaurant": "Subway", "count": 6.7}, {"name": "Nevada", "obesity_percentage": 30.8, "restaurant": "Subway", "count": 6.1}, {"name": "Virginia", "obesity_percentage": 34.3, "restaurant": "Subway", "count": 7.3}, {"name": "South Carolina", "obesity_percentage": 36.0, "restaurant": "Subway", "count": 7.1}, {"name": "West Virginia", "obesity_percentage": 41.2, "restaurant": "Subway", "count": 9.7}, {"name": "Colorado", "obesity_percentage": 24.9, "restaurant": "Taco_Bell", "count": 2.6}, {"name": "Nevada", "obesity_percentage": 30.8, "restaurant": "Taco_Bell", "count": 2.6}, {"name": "Virginia", "obesity_percentage": 34.3, "restaurant": "Taco_Bell", "count": 2.4}, {"name": "South Carolina", "obesity_percentage": 36.0, "restaurant": "Taco_Bell", "count": 2.2}, {"name": "West Virginia", "obesity_percentage": 41.2, "restaurant": "Taco_Bell", "count": 3.5}]
+        // the restaurant names mapped to the link of the images of the logos.
+        const image_map = {"Starbucks": "starbucks.png","Subway": "images/Subway_icon.png", "McDonalds": "mcdonalds2.png", "Burger_King": "images/burger-king.png", "Taco_Bell": "images/tacobell.png", "Wendys": "images/wendys.jpg", "Dairy_Queen": "images/Dairy_Queen_logo.png"}
+
+        //set up scales -> used scaleBand to group by each states.
+        //NOTE: 
+        //we didn’t learn in class on how to group using d3. So, one of our teammates went to office hours 
+        //and the TAs instructed them to use d3.group and scaleBand to group the restaurants by the states. 
+        //The TA also provided us with documentation and an example of how the d3.group and the scaleBand could be used: https://observablehq.com/@d3/grouped-bar-chart/2
+
+
+            const yScale = d3.scaleLinear()
+            .domain([0, 10])
+            .range([chartHeight, 0]);
+
+
+            const state_x = d3.scaleBand()
+                .domain(top_restaurants.map(d => d['name']))
+                .rangeRound([0, chartWidth])
+
+
+
+            const restaurant_x = d3.scaleBand()
+                .domain(top_restaurants.map(d => d['restaurant']))
+                .rangeRound([0, state_x.bandwidth()])
+                .padding(0.8);
+
+            // create x-axis
+            let xAxis = d3.axisBottom(state_x);
+
+            svg2.append("g")
+                .attr('class', 'x axis')
+                .attr('transform', `translate(${margin.left}, ${chartHeight+margin.top})`)
+                .style("font-size", 12)
+                .style("font-weight", "bold")
+                .call(xAxis);
+
+            // create y-axis
+            let yAxis = d3.axisLeft(yScale);
+            svg2.append('g')
+                    .attr('class', 'y axis')
+                    .attr('transform', `translate(${margin.left},${margin.top})`)
+                    .style("font-size", 12)
+                    .call(yAxis);
+
+            // x axis label
+            svg2.append("text")
+                .attr("class", "x label")
+                .style("text-anchor", "middle")
+                .attr("x", ((chartWidth) / 2) + margin.left)
+                .attr("y", margin.top + chartHeight + 85)
+                .style("text-anchor", "middle")
+                .style("font-weight", "bold")
+                .style("font-size", 16)
+                .text("States from Lowest to Highest Obesity Rate");
+
+            //Adding labels for clarity of ordering, these are hardcoded experimented x-values
+            [170, 390, 610, 830, 1050].forEach((p, i) => {
+                const text = ["Lowest obesity rate",
+                    "13th lowest obesity rate",
+                    "26th lowest obesity rate",
+                    "38th lowest obesity rate",
+                    "Highest obesity rate"]
+                svg2.append("text")
+                    .attr("x", p)
+                    .attr("y", margin.top + chartHeight + 32)
+                    .style("text-anchor", "middle")
+                    .style("font-weight", "550")
+                    .style("fill", "#666")
+                    .style("font-size", 10)
+                    .text(text[i]);
+
+                let supportingLabel = svg2.append("text")
+                        .attr("x", p)
+                        .attr("y", margin.top + chartHeight + 45)
+                        .style("text-anchor", "middle")
+                        .style("fill", "#666")
+                        .style("font-size", 10);
+
+                supportingLabel.text(i === 1 ? "(25th percentile)" : i === 2 ? "(median)" : i === 3 ? "(75th percentile)" : "")
+            })
+
+            // y axis label
+            svg2.append("text")
+                .attr("class", "y label")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 20)
+                .attr("x", -(chartHeight / 2) - margin.top)
+                .style("text-anchor", "middle")
+                .style("font-weight", "bold")
+                .style("font-size", 16)
+                .text("Number of Restaurants (per 100k people)");
+
+
+
+            // lollipop sticks
+            chartArea.selectAll(".lollipop-line").data(d3.group(top_restaurants, d => d['name']))
+                .join("g")
+                .attr("transform", ([name]) => `translate(${state_x(name)},0)`)
+                .selectAll()
+                .data(([, d]) => d)
+                .join("line")
+                .attr("class", "lollipop-line")
+                .attr("x1", d => restaurant_x(d.restaurant))
+                .attr("x2", d => restaurant_x(d.restaurant))
+                .attr("y1", yScale(0) )
+                .attr("y2", d => yScale(d['count']) + 25)
+                .attr("stroke", "darkGrey")
+                .attr("stroke-width", 3);
+
+            // lollipop circles with restaurant icons
+
+            chartArea.selectAll(".lollipop-circle").data(d3.group(top_restaurants, d => d.name))
+                .join("g")
+                    .attr("transform", ([name]) => `translate(${state_x(name)},0)`)
+                .selectAll()
+                .data(([, d]) => d)
+                .join("image")
+                .attr("href", d => image_map[d.restaurant])
+                .attr("class", "lollipop-circle")
+                .attr("x", d => restaurant_x(d.restaurant) -15)
+                .attr("y", d => yScale(d.count))
+                .attr("width", 30)
+                .attr("height", 30)
+
+            // number of fast food restaurants per 100,000 people for each restaurant
+            chartArea.selectAll(".lollipop-text").data(d3.group(top_restaurants, d => d.name))
+            .join("g")
+            .attr("transform", ([name]) => `translate(${state_x(name)},0)`)
+            .selectAll()
+            .data(([, d]) => d)
+            .join("text")
+            .attr("class", "lollipop-text")
+            .attr("x", d => restaurant_x(d.restaurant))
+            .attr("y", d => yScale(d.count) - 10)
+            .attr("text-anchor", "middle")
+            .attr("alignment-baseline", "middle")
+            .style("font-size", "10px")
+            .text(d => d.count);
+        </script>
+</body>
+</html>
